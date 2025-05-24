@@ -30,7 +30,7 @@
   ],
   "license": "Apache-2.0",
   "activationEvents": [],
-  "main": "./dist/extension.js",
+  "main": "./dist/extension",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -408,10 +408,8 @@
     ]
   },
   "scripts": {
-    "compile": "npm run check-types && node esbuild.js --production",
-    "watch": "npm-run-all -p watch:*",
-    "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "compile": "npm run check-types && webpack --mode production",
+    "watch": "webpack --mode development --watch --info-verbosity verbose",
     "check-types": "tsc --noEmit",
     "test": "mocha -r ts-node/register test/**/*.test.ts"
   },
@@ -425,7 +423,6 @@
     "chai": "^4.3.10",
     "chai-as-promised": "^8.0.1",
     "chai-http": "^5.1.2",
-    "esbuild": "^0.25.4",
     "file-loader": "^6.2.0",
     "mocha": "^11.3.0",
     "mochawesome": "^7.1.3",
