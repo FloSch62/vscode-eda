@@ -125,6 +125,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // 3) Let k8sClient know about edactlClient so it can call it
     k8sClient.setEdactlClient(edactlClient);
 
+    // Run detailed authentication diagnostics and stop further activation
+    await k8sClient.debugAuthDetailed();
+    return;
+
     // 4) Start watchers
     await k8sClient.startWatchers();
 

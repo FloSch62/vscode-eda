@@ -149,6 +149,11 @@ export class KubernetesClient {
     this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
     this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
     this.networkingV1Api = this.kc.makeApiClient(NetworkingV1Api);
+
+    // Test authentication immediately so failures surface early
+    this.testAuth().catch((err) =>
+      log(`Authentication test failed: ${err}`, LogLevel.ERROR)
+    );
   }
 
   public debugAuth(): void {
@@ -1406,6 +1411,221 @@ export class KubernetesClient {
       return res.body as { items: any[] };
     } catch (error) {
       throw new Error(`listNamespacedCustomObject failed: ${error}`);
+    }
+  }
+
+  /**
+   * Simple authentication test to verify the API client works.
+   */
+  public async testAuth(): Promise<void> {
+    try {
+      await this.coreApi.listNamespace();
+      log('Authentication test succeeded', LogLevel.INFO);
+    } catch (error) {
+      log(`Authentication test failed: ${error}`, LogLevel.ERROR);
+      throw error;
+    }
+  }
+
+  /**
+   * Enhanced debugging method to diagnose authentication issues
+   */
+  public async debugAuthDetailed(): Promise<void> {
+    log('=== DETAILED AUTHENTICATION DIAGNOSTICS ===', LogLevel.INFO);
+
+    try {
+      // 1. Check kubeconfig loading
+      const contexts = this.kc.getContexts();
+      log(`\uD83D\uDCCB Available contexts: ${contexts.map((c) => c.name).join(', ')}`, LogLevel.INFO);
+
+      const currentContext = this.kc.getCurrentContext();
+      log(`\uD83C\uDFE0 Current context: ${currentContext}`, LogLevel.INFO);
+
+      // 2. Examine current user configuration
+      const user = this.kc.getCurrentUser();
+      if (user) {
+        log(`\uD83D\uDC64 Current user: ${user.name}`, LogLevel.INFO);
+
+        const authMethods: string[] = [];
+        if (user.certData) {
+          authMethods.push('client-certificate');
+          try {
+            const cert = Buffer.from(user.certData, 'base64').toString();
+            if (cert.includes('-----BEGIN CERTIFICATE-----')) {
+              log('\u2705 Client certificate format valid', LogLevel.INFO);
+            } else {
+              log('\u274C Client certificate format invalid', LogLevel.ERROR);
+            }
+          } catch (e) {
+            log(`\u274C Client certificate decode error: ${e}`, LogLevel.ERROR);
+          }
+        }
+
+        if (user.keyData) {
+          authMethods.push('client-key');
+          log('\u2705 Client key configured', LogLevel.INFO);
+        }
+
+        if (user.token) {
+          authMethods.push('token');
+          log(`\u2705 Token configured (length: ${user.token.length})`, LogLevel.INFO);
+        }
+
+        if (user.exec) {
+          authMethods.push('exec');
+          log(`\u2705 Exec plugin: ${user.exec.command}`, LogLevel.INFO);
+        }
+
+        if (authMethods.length === 0) {
+          log('\u274C NO AUTHENTICATION METHODS FOUND!', LogLevel.ERROR);
+        } else {
+          log(`\uD83D\uDD12 Authentication methods: ${authMethods.join(', ')}`, LogLevel.INFO);
+        }
+      } else {
+        log('\u274C NO USER FOUND IN CURRENT CONTEXT!', LogLevel.ERROR);
+      }
+
+      // 3. Check cluster configuration
+      const cluster = this.kc.getCurrentCluster();
+      if (cluster) {
+        log(`\uD83C\uDFDB\uFE0F  Cluster: ${cluster.name} (${cluster.server})`, LogLevel.INFO);
+        if (cluster.caData) {
+          log('\u2705 Cluster CA certificate configured', LogLevel.INFO);
+        }
+        if (cluster.skipTLSVerify) {
+          log('\u26A0\uFE0F  TLS verification disabled', LogLevel.WARN);
+        }
+      }
+
+      // 4. Test authentication with different methods
+      await this.testAuthenticationMethods();
+    } catch (error) {
+      log(`Detailed auth debug failed: ${error}`, LogLevel.ERROR);
+    }
+
+    log('=== END AUTHENTICATION DIAGNOSTICS ===', LogLevel.INFO);
+  }
+
+  /**
+   * Test different authentication approaches
+   */
+  private async testAuthenticationMethods(): Promise<void> {
+    log('\uD83E\uDDEA Testing authentication methods...', LogLevel.INFO);
+
+    // Test 1: Direct API call
+    try {
+      await this.coreApi.listNamespace();
+      log('\u2705 Direct API call successful', LogLevel.INFO);
+    } catch (error) {
+      log(`\u274C Direct API call failed: ${error}`, LogLevel.ERROR);
+
+      const msg = error.toString();
+      if (msg.includes('system:anonymous')) {
+        log('\uD83D\uDD0D Root cause: Authenticating as anonymous user', LogLevel.ERROR);
+        log('\uD83D\uDCA1 Suggestion: Check client certificate/token validity', LogLevel.INFO);
+      }
+
+      if (msg.includes('403')) {
+        log('\uD83D\uDD0D Authentication succeeded but insufficient permissions', LogLevel.WARN);
+      }
+
+      if (msg.includes('401')) {
+        log('\uD83D\uDD0D Authentication credentials invalid', LogLevel.ERROR);
+      }
+    }
+
+    // Test 2: Try refreshing the kubeconfig
+    try {
+      log('\uD83D\uDD04 Testing kubeconfig refresh...', LogLevel.INFO);
+      const freshKc = new KubeConfig();
+      freshKc.loadFromDefault();
+      const freshApi = freshKc.makeApiClient(CoreV1Api);
+      await freshApi.listNamespace();
+      log('\u2705 Fresh kubeconfig works - consider reloading', LogLevel.INFO);
+    } catch (error) {
+      log(`\u274C Fresh kubeconfig also fails: ${error}`, LogLevel.ERROR);
+    }
+
+    // Test 3: kubectl command test
+    try {
+      log('\uD83D\uDD04 Testing kubectl command...', LogLevel.INFO);
+      const { execSync } = require('child_process');
+      const result = execSync('kubectl get namespaces --no-headers | wc -l', { encoding: 'utf-8' });
+      const count = parseInt(result.trim(), 10);
+      log(`\u2705 kubectl command successful - found ${count} namespaces`, LogLevel.INFO);
+      log("\uD83D\uDCA1 kubectl works but client library doesn't - library configuration issue", LogLevel.WARN);
+    } catch (error) {
+      log(`\u274C kubectl command also fails: ${error}`, LogLevel.ERROR);
+      log('\uD83D\uDCA1 This suggests a broader authentication problem', LogLevel.ERROR);
+    }
+  }
+
+  /**
+   * Try switching to the alternative context to test if it works better
+   */
+  public async testAlternativeContext(): Promise<void> {
+    const contexts = this.getAvailableContexts();
+    const currentContext = this.getCurrentContext();
+
+    for (const context of contexts) {
+      if (context !== currentContext) {
+        log(`\uD83D\uDD04 Testing alternative context: ${context}`, LogLevel.INFO);
+        try {
+          await this.switchContext(context);
+          await this.testAuth();
+          log(`\u2705 Alternative context ${context} works!`, LogLevel.INFO);
+          return;
+        } catch (error) {
+          log(`\u274C Alternative context ${context} failed: ${error}`, LogLevel.ERROR);
+          try {
+            await this.switchContext(currentContext);
+          } catch (switchError) {
+            log(`\u274C Failed to switch back to ${currentContext}: ${switchError}`, LogLevel.ERROR);
+          }
+        }
+      }
+    }
+
+    log('\u274C No working alternative contexts found', LogLevel.ERROR);
+  }
+
+  /**
+   * Force reload kubeconfig and recreate API clients
+   */
+  public forceReloadKubeconfig(): void {
+    log('\uD83D\uDD04 Force reloading kubeconfig...', LogLevel.INFO);
+
+    try {
+      this.kc = new KubeConfig();
+
+      try {
+        this.kc.loadFromDefault();
+        log('\u2705 Loaded from default', LogLevel.INFO);
+      } catch (defaultError) {
+        log(`Default load failed: ${defaultError}`, LogLevel.WARN);
+
+        try {
+          const kubeconfigPath = process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
+          this.kc.loadFromFile(kubeconfigPath);
+          log(`\u2705 Loaded from file: ${kubeconfigPath}`, LogLevel.INFO);
+        } catch (fileError) {
+          log(`File load failed: ${fileError}`, LogLevel.ERROR);
+          throw new Error('Unable to reload kubeconfig');
+        }
+      }
+
+      this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
+      this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
+      this.coreApi = this.kc.makeApiClient(CoreV1Api);
+      this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
+      this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
+      this.networkingV1Api = this.kc.makeApiClient(NetworkingV1Api);
+      this.watch = new Watch(this.kc);
+
+      log('\u2705 Kubeconfig and API clients reloaded', LogLevel.INFO);
+    } catch (error) {
+      log(`\u274C Force reload failed: ${error}`, LogLevel.ERROR);
+      throw error;
     }
   }
 }
