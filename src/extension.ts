@@ -113,7 +113,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 1) Create the clients independently
 
-    const k8sClient = new KubernetesClient();
+    const k8sClient = await KubernetesClient.create();
     const edactlClient = new EdactlClient();
     const currentContext = k8sClient.getCurrentContext();
     contextStatusBarItem.text = `$(kubernetes) EDA: ${currentContext}`;

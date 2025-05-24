@@ -27,8 +27,7 @@ import {
   NetworkingV1Api,
   V1Ingress,
 } from '@kubernetes/client-node';
-import * as os from 'os';
-import * as path from 'path';
+import { loadKubeconfig } from '../components/kubectl/kubeconfig';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient';
 import * as vscode from 'vscode';
@@ -110,36 +109,24 @@ export class KubernetesClient {
   private resourceChangeDebounceTimer: NodeJS.Timeout | null = null;
   private resourceChangesPending: boolean = false;
 
-  constructor() {
-    this.kc = new KubeConfig();
-    try {
-      // Try loading config using the default logic (supports KUBECONFIG env)
-      this.kc.loadFromDefault();
+  public static async create(): Promise<KubernetesClient> {
+    const kc = await loadKubeconfig();
 
-      const currentContext = this.kc.getCurrentContext();
-      if (!currentContext) {
-        throw new Error('No current context found in kubeconfig');
-      }
-
+    const currentContext = kc.getCurrentContext();
+    if (currentContext) {
       log(`Loaded kubeconfig with context: ${currentContext}`, LogLevel.INFO);
-
-      const user = this.kc.getCurrentUser();
-      if (!user) {
-        log('Warning: No user found in current context', LogLevel.WARN);
-      }
-    } catch (error) {
-      log(`Failed to load Kubernetes configuration: ${error}`, LogLevel.ERROR);
-
-      try {
-        const kubeconfigPath =
-          process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
-        this.kc.loadFromFile(kubeconfigPath);
-        log(`Loaded kubeconfig from file: ${kubeconfigPath}`, LogLevel.INFO);
-      } catch (fileError) {
-        log(`Failed to load from file: ${fileError}`, LogLevel.ERROR);
-        throw new Error('Unable to load any valid kubeconfig');
-      }
     }
+
+    const user = kc.getCurrentUser();
+    if (!user) {
+      log('Warning: No user found in current context', LogLevel.WARN);
+    }
+
+    return new KubernetesClient(kc);
+  }
+
+  private constructor(kc: KubeConfig) {
+    this.kc = kc;
 
     this.debugAuth();
     this.watch = new Watch(this.kc);
@@ -1537,8 +1524,7 @@ export class KubernetesClient {
     // Test 2: Try refreshing the kubeconfig
     try {
       log('\uD83D\uDD04 Testing kubeconfig refresh...', LogLevel.INFO);
-      const freshKc = new KubeConfig();
-      freshKc.loadFromDefault();
+      const freshKc = await loadKubeconfig();
       const freshApi = freshKc.makeApiClient(CoreV1Api);
       await freshApi.listNamespace();
       log('\u2705 Fresh kubeconfig works - consider reloading', LogLevel.INFO);
@@ -1592,27 +1578,11 @@ export class KubernetesClient {
   /**
    * Force reload kubeconfig and recreate API clients
    */
-  public forceReloadKubeconfig(): void {
+  public async forceReloadKubeconfig(): Promise<void> {
     log('\uD83D\uDD04 Force reloading kubeconfig...', LogLevel.INFO);
 
     try {
-      this.kc = new KubeConfig();
-
-      try {
-        this.kc.loadFromDefault();
-        log('\u2705 Loaded from default', LogLevel.INFO);
-      } catch (defaultError) {
-        log(`Default load failed: ${defaultError}`, LogLevel.WARN);
-
-        try {
-          const kubeconfigPath = process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
-          this.kc.loadFromFile(kubeconfigPath);
-          log(`\u2705 Loaded from file: ${kubeconfigPath}`, LogLevel.INFO);
-        } catch (fileError) {
-          log(`File load failed: ${fileError}`, LogLevel.ERROR);
-          throw new Error('Unable to reload kubeconfig');
-        }
-      }
+      this.kc = await loadKubeconfig();
 
       this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
       this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
