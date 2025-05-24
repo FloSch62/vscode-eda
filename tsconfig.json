@@ -13,5 +13,5 @@
       "skipLibCheck": true,
   "strictNullChecks": false 
   },
-    "exclude": ["node_modules", ".vscode-test", ".old"]
+    "exclude": ["node_modules", ".vscode-test", ".old", "test"]
   }
