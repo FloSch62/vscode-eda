@@ -412,7 +412,8 @@
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "mocha -r ts-node/register test/**/*.test.ts"
   },
   "devDependencies": {
     "@types/chai": "^5.2.2",
