@@ -27,7 +27,7 @@ import {
   NetworkingV1Api,
   V1Ingress,
 } from '@kubernetes/client-node';
-import { loadKubeconfig } from '../components/kubectl/kubeconfig';
+import { loadKubeconfig } from './kubeconfig';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient';
 import * as vscode from 'vscode';
