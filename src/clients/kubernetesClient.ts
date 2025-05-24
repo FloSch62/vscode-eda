@@ -26,6 +26,8 @@ import {
   NetworkingV1Api,
   V1Ingress,
 } from '@kubernetes/client-node';
+import * as os from 'os';
+import * as path from 'path';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient';
 import * as vscode from 'vscode';
@@ -109,16 +111,71 @@ export class KubernetesClient {
   constructor() {
     this.kc = new KubeConfig();
     try {
+      // Try loading config using the default logic (supports KUBECONFIG env)
       this.kc.loadFromDefault();
+
+      const currentContext = this.kc.getCurrentContext();
+      if (!currentContext) {
+        throw new Error('No current context found in kubeconfig');
+      }
+
+      log(`Loaded kubeconfig with context: ${currentContext}`, LogLevel.INFO);
+
+      const user = this.kc.getCurrentUser();
+      if (!user) {
+        log('Warning: No user found in current context', LogLevel.WARN);
+      }
     } catch (error) {
       log(`Failed to load Kubernetes configuration: ${error}`, LogLevel.ERROR);
+
+      try {
+        const kubeconfigPath =
+          process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
+        this.kc.loadFromFile(kubeconfigPath);
+        log(`Loaded kubeconfig from file: ${kubeconfigPath}`, LogLevel.INFO);
+      } catch (fileError) {
+        log(`Failed to load from file: ${fileError}`, LogLevel.ERROR);
+        throw new Error('Unable to load any valid kubeconfig');
+      }
     }
+
+    this.debugAuth();
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
     this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
     this.coreApi = this.kc.makeApiClient(CoreV1Api);
     this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
     this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
     this.networkingV1Api = this.kc.makeApiClient(NetworkingV1Api);
+  }
+
+  public debugAuth(): void {
+    try {
+      const contexts = this.kc.getContexts();
+      log(`Available contexts: ${contexts.map((c) => c.name).join(', ')}`, LogLevel.INFO);
+
+      const currentContext = this.kc.getCurrentContext();
+      log(`Current context: ${currentContext}`, LogLevel.INFO);
+
+      const cluster = this.kc.getCurrentCluster();
+      if (cluster) {
+        log(
+          `Current cluster: ${cluster.name}, server: ${cluster.server}`,
+          LogLevel.INFO
+        );
+      }
+
+      const user = this.kc.getCurrentUser();
+      if (user) {
+        log(`Current user: ${user.name}`, LogLevel.INFO);
+        if (user.token) log('Auth type: token', LogLevel.INFO);
+        if (user.certData) log('Auth type: client certificate', LogLevel.INFO);
+        if (user.exec) log('Auth type: exec plugin', LogLevel.INFO);
+      } else {
+        log('WARNING: No user authentication found!', LogLevel.WARN);
+      }
+    } catch (error) {
+      log(`Error debugging auth: ${error}`, LogLevel.ERROR);
+    }
   }
 
   /**
