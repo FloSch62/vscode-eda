@@ -3,6 +3,7 @@ import {
   ApiextensionsV1Api,
   CustomObjectsApi,
   makeInformer,
+  Watch,
   KubernetesObject,
   KubernetesListObject,
   V1CustomResourceDefinition,
@@ -50,11 +51,12 @@ export class KubernetesClient {
   private appsV1Api: AppsV1Api;
   private batchV1Api: BatchV1Api;
   private networkingV1Api: NetworkingV1Api;
+  private watch: Watch;
 
-  private crdsInformer: any;
+  private crdsInformer: AbortController | null = null;
   private crdsCache: V1CustomResourceDefinition[] = [];
 
-  private namespacesInformer: any;
+  private namespacesInformer: AbortController | null = null;
   private namespacesCache: V1Namespace[] = [];
 
   private podInformers: Map<string, any> = new Map();
@@ -75,7 +77,7 @@ export class KubernetesClient {
   private endpointsInformers: Map<string, any> = new Map();
   private endpointsCache: Map<string, V1Endpoints[]> = new Map();
 
-  private pvInformer: any;
+  private pvInformer: AbortController | null = null;
   private pvsCache: V1PersistentVolume[] = [];
 
   private deploymentInformers: Map<string, any> = new Map();
@@ -140,6 +142,7 @@ export class KubernetesClient {
     }
 
     this.debugAuth();
+    this.watch = new Watch(this.kc);
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
     this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
     this.coreApi = this.kc.makeApiClient(CoreV1Api);
@@ -215,25 +218,25 @@ export class KubernetesClient {
 
     if (this.crdsInformer) {
       try {
-        this.crdsInformer.stop();
+        this.crdsInformer.abort();
       } catch (err) {
-        log(`Error stopping CRD informer: ${err}`, LogLevel.WARN);
+        log(`Error stopping CRD watcher: ${err}`, LogLevel.WARN);
       }
     }
 
     if (this.namespacesInformer) {
       try {
-        this.namespacesInformer.stop();
+        this.namespacesInformer.abort();
       } catch (err) {
-        log(`Error stopping Namespace informer: ${err}`, LogLevel.WARN);
+        log(`Error stopping Namespace watcher: ${err}`, LogLevel.WARN);
       }
     }
 
     if (this.pvInformer) {
       try {
-        this.pvInformer.stop();
+        this.pvInformer.abort();
       } catch (err) {
-        log(`Error stopping PV informer: ${err}`, LogLevel.WARN);
+        log(`Error stopping PV watcher: ${err}`, LogLevel.WARN);
       }
     }
 
@@ -366,55 +369,52 @@ export class KubernetesClient {
   private async startCrdWatcher(): Promise<void> {
     log('Starting CRD watcher...', LogLevel.INFO);
 
-    const listCrds = async (): Promise<KubernetesListObject<V1CustomResourceDefinition>> => {
-      const res = await this.apiExtensionsV1Api.listCustomResourceDefinition();
-      return res;
-    };
+    const path = '/apis/apiextensions.k8s.io/v1/customresourcedefinitions';
 
-    this.crdsInformer = makeInformer<V1CustomResourceDefinition>(
-      this.kc,
-      '/apis/apiextensions.k8s.io/v1/customresourcedefinitions',
-      listCrds,
-    );
-
-    this.crdsInformer.on('add', (obj: V1CustomResourceDefinition) => {
-      if (!this.crdsCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
-        this.crdsCache.push(obj);
-        log(`Watcher detected new CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-        this.startResourceWatcher(obj).catch((err) =>
-          log(`Error starting resource watcher: ${err}`, LogLevel.ERROR)
-        );
-      }
-    });
-
-    this.crdsInformer.on('update', (obj: V1CustomResourceDefinition) => {
-      const index = this.crdsCache.findIndex((o) => o.metadata?.name === obj.metadata?.name);
-      if (index >= 0) {
-        this.crdsCache[index] = obj;
-      } else {
-        this.crdsCache.push(obj);
-      }
-      log(`Watcher detected update CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-      this.startResourceWatcher(obj).catch((err) =>
-        log(`Error starting resource watcher: ${err}`, LogLevel.ERROR)
+    try {
+      const req = await this.watch.watch(
+        path,
+        {},
+        (type: string, obj: V1CustomResourceDefinition) => {
+          switch (type) {
+            case 'ADDED':
+              if (!this.crdsCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
+                this.crdsCache.push(obj);
+                log(`Watcher detected new CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+                this.startResourceWatcher(obj).catch((err) =>
+                  log(`Error starting resource watcher: ${err}`, LogLevel.ERROR)
+                );
+              }
+              break;
+            case 'MODIFIED':
+              const index = this.crdsCache.findIndex((o) => o.metadata?.name === obj.metadata?.name);
+              if (index >= 0) {
+                this.crdsCache[index] = obj;
+              } else {
+                this.crdsCache.push(obj);
+              }
+              log(`Watcher detected update CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              break;
+            case 'DELETED':
+              this.crdsCache = this.crdsCache.filter((o) => o.metadata?.name !== obj.metadata?.name);
+              log(`Watcher detected delete CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              break;
+          }
+        },
+        (err: any) => {
+          log(`CRD watch error: ${err}`, LogLevel.ERROR);
+          setTimeout(() => {
+            this.startCrdWatcher().catch((e) => {
+              log(`Failed to restart CRD watcher: ${e}`, LogLevel.ERROR);
+            });
+          }, 5000);
+        }
       );
-    });
 
-    this.crdsInformer.on('delete', (obj: V1CustomResourceDefinition) => {
-      this.crdsCache = this.crdsCache.filter((o) => o.metadata?.name !== obj.metadata?.name);
-      log(`Watcher detected delete CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-    });
-
-    this.crdsInformer.on('error', (err: any) => {
-      log(`CRD informer error: ${err}`, LogLevel.ERROR);
-      setTimeout(() => {
-        this.crdsInformer.start().catch((e: any) => {
-          log(`Failed to restart CRD informer: ${e}`, LogLevel.ERROR);
-        });
-      }, 5000);
-    });
-
-    await this.crdsInformer.start();
+      this.crdsInformer = req;
+    } catch (error) {
+      log(`Failed to start CRD watcher: ${error}`, LogLevel.ERROR);
+    }
   }
 
   /**
@@ -423,63 +423,63 @@ export class KubernetesClient {
   private async startNamespaceWatcher(): Promise<void> {
     log('Starting Namespace watcher...', LogLevel.INFO);
 
-    const listNamespaces = async (): Promise<KubernetesListObject<V1Namespace>> => {
-      const res = await this.coreApi.listNamespace();
-      return res;
-    };
+    const path = '/api/v1/namespaces';
 
-    this.namespacesInformer = makeInformer<V1Namespace>(
-      this.kc,
-      '/api/v1/namespaces',
-      listNamespaces
-    );
-
-    this.namespacesInformer.on('add', async (obj: V1Namespace) => {
-      if (!this.namespacesCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
-        this.namespacesCache.push(obj);
-        log(`Watcher detected new Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-      }
-      if (this.edactlClient) {
-        await this.refreshEdaNamespaces();
-      }
-        this.debouncedFireResourceChanged();
-    });
-
-    this.namespacesInformer.on('update', async (obj: V1Namespace) => {
-      const idx = this.namespacesCache.findIndex((o) => o.metadata?.name === obj.metadata?.name);
-      if (idx >= 0) {
-        this.namespacesCache[idx] = obj;
-      } else {
-        this.namespacesCache.push(obj);
-      }
-      log(`Watcher detected update Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-      if (this.edactlClient) {
-        await this.refreshEdaNamespaces();
-      }
-        this.debouncedFireResourceChanged();
-    });
-
-    this.namespacesInformer.on('delete', async (obj: V1Namespace) => {
-      this.namespacesCache = this.namespacesCache.filter(
-        (o) => o.metadata?.name !== obj.metadata?.name
+    try {
+      const req = await this.watch.watch(
+        path,
+        {},
+        async (type: string, obj: V1Namespace) => {
+          switch (type) {
+            case 'ADDED':
+              if (!this.namespacesCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
+                this.namespacesCache.push(obj);
+                log(`Watcher detected new Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              }
+              if (this.edactlClient) {
+                await this.refreshEdaNamespaces();
+              }
+              this.debouncedFireResourceChanged();
+              break;
+            case 'MODIFIED':
+              const idx = this.namespacesCache.findIndex((o) => o.metadata?.name === obj.metadata?.name);
+              if (idx >= 0) {
+                this.namespacesCache[idx] = obj;
+              } else {
+                this.namespacesCache.push(obj);
+              }
+              log(`Watcher detected update Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              if (this.edactlClient) {
+                await this.refreshEdaNamespaces();
+              }
+              this.debouncedFireResourceChanged();
+              break;
+            case 'DELETED':
+              this.namespacesCache = this.namespacesCache.filter(
+                (o) => o.metadata?.name !== obj.metadata?.name
+              );
+              log(`Watcher detected delete Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              if (this.edactlClient) {
+                await this.refreshEdaNamespaces();
+              }
+              this.debouncedFireResourceChanged();
+              break;
+          }
+        },
+        (err: any) => {
+          log(`Namespace watcher error: ${err}`, LogLevel.ERROR);
+          setTimeout(() => {
+            this.startNamespaceWatcher().catch((startErr: any) => {
+              log(`Failed to restart Namespace watcher: ${startErr}`, LogLevel.ERROR);
+            });
+          }, 5000);
+        }
       );
-      log(`Watcher detected delete Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-      if (this.edactlClient) {
-        await this.refreshEdaNamespaces();
-      }
-        this.debouncedFireResourceChanged();
-    });
 
-    this.namespacesInformer.on('error', (err: any) => {
-      log(`Namespace informer error: ${err}`, LogLevel.ERROR);
-      setTimeout(() => {
-        this.namespacesInformer.start().catch((startErr: any) => {
-          log(`Failed to restart Namespace informer: ${startErr}`, LogLevel.ERROR);
-        });
-      }, 5000);
-    });
-
-    await this.namespacesInformer.start();
+      this.namespacesInformer = req;
+    } catch (error) {
+      log(`Failed to start Namespace watcher: ${error}`, LogLevel.ERROR);
+    }
   }
 
   /**
@@ -488,52 +488,52 @@ export class KubernetesClient {
   private async startPersistentVolumeWatcher(): Promise<void> {
     log('Starting PersistentVolume watcher...', LogLevel.INFO);
 
-    const listPVs = async (): Promise<KubernetesListObject<V1PersistentVolume>> => {
-      const res = await this.coreApi.listPersistentVolume();
-      return res;
-    };
+    const path = '/api/v1/persistentvolumes';
 
-    this.pvInformer = makeInformer<V1PersistentVolume>(
-      this.kc,
-      '/api/v1/persistentvolumes',
-      listPVs,
-    );
+    try {
+      const req = await this.watch.watch(
+        path,
+        {},
+        (type: string, obj: V1PersistentVolume) => {
+          switch (type) {
+            case 'ADDED':
+              if (!this.pvsCache.find((o) => o.metadata?.uid === obj.metadata?.uid)) {
+                this.pvsCache.push(obj);
+                log(`Watcher detected new PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              }
+              this.debouncedFireResourceChanged();
+              break;
+            case 'MODIFIED':
+              const idx = this.pvsCache.findIndex((o) => o.metadata?.uid === obj.metadata?.uid);
+              if (idx >= 0) {
+                this.pvsCache[idx] = obj;
+              } else {
+                this.pvsCache.push(obj);
+              }
+              log(`Watcher detected update to PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              this.debouncedFireResourceChanged();
+              break;
+            case 'DELETED':
+              this.pvsCache = this.pvsCache.filter((o) => o.metadata?.uid !== obj.metadata?.uid);
+              log(`Watcher detected deletion of PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
+              this.debouncedFireResourceChanged();
+              break;
+          }
+        },
+        (err: any) => {
+          log(`PersistentVolume watcher error: ${err}`, LogLevel.ERROR);
+          setTimeout(() => {
+            this.startPersistentVolumeWatcher().catch((startErr: any) => {
+              log(`Failed to restart PersistentVolume watcher: ${startErr}`, LogLevel.ERROR);
+            });
+          }, 5000);
+        }
+      );
 
-    this.pvInformer.on('add', (obj: V1PersistentVolume) => {
-      if (!this.pvsCache.find((o) => o.metadata?.uid === obj.metadata?.uid)) {
-        this.pvsCache.push(obj);
-        log(`Watcher detected new PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-      }
-        this.debouncedFireResourceChanged();
-    });
-
-    this.pvInformer.on('update', (obj: V1PersistentVolume) => {
-      const idx = this.pvsCache.findIndex((o) => o.metadata?.uid === obj.metadata?.uid);
-      if (idx >= 0) {
-        this.pvsCache[idx] = obj;
-      } else {
-        this.pvsCache.push(obj);
-      }
-      log(`Watcher detected update to PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-        this.debouncedFireResourceChanged();
-    });
-
-    this.pvInformer.on('delete', (obj: V1PersistentVolume) => {
-      this.pvsCache = this.pvsCache.filter((o) => o.metadata?.uid !== obj.metadata?.uid);
-      log(`Watcher detected deletion of PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
-        this.debouncedFireResourceChanged();
-    });
-
-    this.pvInformer.on('error', (err: any) => {
-      log(`PersistentVolume watcher error: ${err}`, LogLevel.ERROR);
-      setTimeout(() => {
-        this.pvInformer.start().catch((startErr: any) => {
-          log(`Failed to restart PersistentVolume watcher: ${startErr}`, LogLevel.ERROR);
-        });
-      }, 5000);
-    });
-
-    await this.pvInformer.start();
+      this.pvInformer = req;
+    } catch (error) {
+      log(`Failed to start PersistentVolume watcher: ${error}`, LogLevel.ERROR);
+    }
   }
 
   /**
@@ -1352,9 +1352,9 @@ export class KubernetesClient {
 
     this.stopAllNamespacedInformers();
 
-    this.crdsInformer?.stop();
-    this.namespacesInformer?.stop();
-    this.pvInformer?.stop();
+    this.crdsInformer?.abort();
+    this.namespacesInformer?.abort();
+    this.pvInformer?.abort();
 
     this._onResourceChanged.dispose();
     this._onDeviationChanged.dispose();
