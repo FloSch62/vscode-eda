@@ -2,50 +2,32 @@ import {
   KubeConfig,
   ApiextensionsV1Api,
   CustomObjectsApi,
-  ApisApi,
   makeInformer,
   KubernetesObject,
+  KubernetesListObject,
   V1CustomResourceDefinition,
   V1Namespace,
-  V1CustomResourceDefinitionList,
-  V1NamespaceList,
   CoreV1Api,
   V1Pod,
-  V1PodList,
   V1Service,
-  V1ServiceList,
   V1ConfigMap,
-  V1ConfigMapList,
   V1Secret,
-  V1SecretList,
   V1PersistentVolumeClaim,
-  V1PersistentVolumeClaimList,
   V1Endpoints,
-  V1EndpointsList,
   V1PersistentVolume,
-  V1PersistentVolumeList,
   AppsV1Api,
   V1Deployment,
-  V1DeploymentList,
   V1ReplicaSet,
-  V1ReplicaSetList,
   V1StatefulSet,
-  V1StatefulSetList,
   V1DaemonSet,
-  V1DaemonSetList,
   BatchV1Api,
   V1Job,
-  V1JobList,
   V1CronJob,
-  V1CronJobList,
   NetworkingV1Api,
   V1Ingress,
-  V1IngressList,
 } from '@kubernetes/client-node';
-import * as http from 'http';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient';
-import { EdaDeviationProvider } from '../providers/views/deviationProvider';
 import * as vscode from 'vscode';
 
 export class KubernetesClient {
@@ -62,7 +44,6 @@ export class KubernetesClient {
   private kc: KubeConfig;
   private apiExtensionsV1Api: ApiextensionsV1Api;
   private customObjectsApi: CustomObjectsApi;
-  private apisApi: ApisApi;
   private coreApi: CoreV1Api;
   private appsV1Api: AppsV1Api;
   private batchV1Api: BatchV1Api;
@@ -134,7 +115,6 @@ export class KubernetesClient {
     }
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
     this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
-    this.apisApi = this.kc.makeApiClient(ApisApi);
     this.coreApi = this.kc.makeApiClient(CoreV1Api);
     this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
     this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
@@ -214,7 +194,6 @@ export class KubernetesClient {
 
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
     this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
-    this.apisApi = this.kc.makeApiClient(ApisApi);
     this.coreApi = this.kc.makeApiClient(CoreV1Api);
     this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
     this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
@@ -330,12 +309,9 @@ export class KubernetesClient {
   private async startCrdWatcher(): Promise<void> {
     log('Starting CRD watcher...', LogLevel.INFO);
 
-    const listCrds = async (): Promise<{
-      response: http.IncomingMessage;
-      body: V1CustomResourceDefinitionList;
-    }> => {
-      const resp = await this.apiExtensionsV1Api.listCustomResourceDefinition();
-      return { response: resp.response, body: resp.body };
+    const listCrds = async (): Promise<KubernetesListObject<V1CustomResourceDefinition>> => {
+      const res = await this.apiExtensionsV1Api.listCustomResourceDefinition();
+      return res;
     };
 
     this.crdsInformer = makeInformer<V1CustomResourceDefinition>(
@@ -390,12 +366,9 @@ export class KubernetesClient {
   private async startNamespaceWatcher(): Promise<void> {
     log('Starting Namespace watcher...', LogLevel.INFO);
 
-    const listNamespaces = async (): Promise<{
-      response: http.IncomingMessage;
-      body: V1NamespaceList;
-    }> => {
-      const resp = await this.coreApi.listNamespace();
-      return { response: resp.response, body: resp.body };
+    const listNamespaces = async (): Promise<KubernetesListObject<V1Namespace>> => {
+      const res = await this.coreApi.listNamespace();
+      return res;
     };
 
     this.namespacesInformer = makeInformer<V1Namespace>(
@@ -458,12 +431,9 @@ export class KubernetesClient {
   private async startPersistentVolumeWatcher(): Promise<void> {
     log('Starting PersistentVolume watcher...', LogLevel.INFO);
 
-    const listPVs = async (): Promise<{
-      response: http.IncomingMessage;
-      body: V1PersistentVolumeList;
-    }> => {
-      const resp = await this.coreApi.listPersistentVolume();
-      return { response: resp.response, body: resp.body };
+    const listPVs = async (): Promise<KubernetesListObject<V1PersistentVolume>> => {
+      const res = await this.coreApi.listPersistentVolume();
+      return res;
     };
 
     this.pvInformer = makeInformer<V1PersistentVolume>(
@@ -523,9 +493,9 @@ export class KubernetesClient {
       log(`Starting Pod watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/pods`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1PodList }> => {
-        const res = await this.coreApi.listNamespacedPod(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Pod>> => {
+        const res = await this.coreApi.listNamespacedPod({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Pod>(this.kc, path, listFn);
@@ -551,9 +521,9 @@ export class KubernetesClient {
       log(`Starting Service watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/services`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1ServiceList }> => {
-        const res = await this.coreApi.listNamespacedService(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Service>> => {
+        const res = await this.coreApi.listNamespacedService({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Service>(this.kc, path, listFn);
@@ -579,9 +549,9 @@ export class KubernetesClient {
       log(`Starting ConfigMap watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/configmaps`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1ConfigMapList }> => {
-        const res = await this.coreApi.listNamespacedConfigMap(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1ConfigMap>> => {
+        const res = await this.coreApi.listNamespacedConfigMap({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1ConfigMap>(this.kc, path, listFn);
@@ -607,9 +577,9 @@ export class KubernetesClient {
       log(`Starting Secret watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/secrets`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1SecretList }> => {
-        const res = await this.coreApi.listNamespacedSecret(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Secret>> => {
+        const res = await this.coreApi.listNamespacedSecret({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Secret>(this.kc, path, listFn);
@@ -635,9 +605,9 @@ export class KubernetesClient {
       log(`Starting PVC watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/persistentvolumeclaims`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1PersistentVolumeClaimList }> => {
-        const res = await this.coreApi.listNamespacedPersistentVolumeClaim(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1PersistentVolumeClaim>> => {
+        const res = await this.coreApi.listNamespacedPersistentVolumeClaim({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1PersistentVolumeClaim>(this.kc, path, listFn);
@@ -663,9 +633,9 @@ export class KubernetesClient {
       log(`Starting Endpoints watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/endpoints`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1EndpointsList }> => {
-        const res = await this.coreApi.listNamespacedEndpoints(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Endpoints>> => {
+        const res = await this.coreApi.listNamespacedEndpoints({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Endpoints>(this.kc, path, listFn);
@@ -691,9 +661,9 @@ export class KubernetesClient {
       log(`Starting Deployment watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/deployments`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1DeploymentList }> => {
-        const res = await this.appsV1Api.listNamespacedDeployment(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Deployment>> => {
+        const res = await this.appsV1Api.listNamespacedDeployment({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Deployment>(this.kc, path, listFn);
@@ -719,9 +689,9 @@ export class KubernetesClient {
       log(`Starting ReplicaSet watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/replicasets`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1ReplicaSetList }> => {
-        const res = await this.appsV1Api.listNamespacedReplicaSet(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1ReplicaSet>> => {
+        const res = await this.appsV1Api.listNamespacedReplicaSet({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1ReplicaSet>(this.kc, path, listFn);
@@ -747,9 +717,9 @@ export class KubernetesClient {
       log(`Starting StatefulSet watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/statefulsets`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1StatefulSetList }> => {
-        const res = await this.appsV1Api.listNamespacedStatefulSet(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1StatefulSet>> => {
+        const res = await this.appsV1Api.listNamespacedStatefulSet({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1StatefulSet>(this.kc, path, listFn);
@@ -775,9 +745,9 @@ export class KubernetesClient {
       log(`Starting DaemonSet watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/daemonsets`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1DaemonSetList }> => {
-        const res = await this.appsV1Api.listNamespacedDaemonSet(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1DaemonSet>> => {
+        const res = await this.appsV1Api.listNamespacedDaemonSet({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1DaemonSet>(this.kc, path, listFn);
@@ -803,9 +773,9 @@ export class KubernetesClient {
       log(`Starting Job watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/batch/v1/namespaces/${ns}/jobs`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1JobList }> => {
-        const res = await this.batchV1Api.listNamespacedJob(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Job>> => {
+        const res = await this.batchV1Api.listNamespacedJob({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Job>(this.kc, path, listFn);
@@ -831,9 +801,9 @@ export class KubernetesClient {
       log(`Starting CronJob watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/batch/v1/namespaces/${ns}/cronjobs`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1CronJobList }> => {
-        const res = await this.batchV1Api.listNamespacedCronJob(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1CronJob>> => {
+        const res = await this.batchV1Api.listNamespacedCronJob({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1CronJob>(this.kc, path, listFn);
@@ -859,9 +829,9 @@ export class KubernetesClient {
       log(`Starting Ingress watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1IngressList }> => {
-        const res = await this.networkingV1Api.listNamespacedIngress(ns);
-        return { response: res.response, body: res.body };
+      const listFn = async (): Promise<KubernetesListObject<V1Ingress>> => {
+        const res = await this.networkingV1Api.listNamespacedIngress({ namespace: ns });
+        return res;
       };
 
       const informer = makeInformer<V1Ingress>(this.kc, path, listFn);
@@ -876,7 +846,7 @@ export class KubernetesClient {
   /**
    * Generic method to attach handlers to a namespaced informer
    */
-  private attachNamespacedInformerHandlers<T>(
+  private attachNamespacedInformerHandlers<T extends KubernetesObject>(
     informer: ReturnType<typeof makeInformer<T>>,
     namespace: string,
     key: string,
@@ -1011,9 +981,13 @@ export class KubernetesClient {
       log(`Starting cluster-wide resource watcher for CRD: ${key}`, LogLevel.INFO);
 
       const path = `/apis/${group}/${version}/${plural}`;
-      const listFn = async (): Promise<{ response: http.IncomingMessage; body: { items: KubernetesObject[] } }> => {
-        const res = await this.customObjectsApi.listClusterCustomObject(group, version, plural);
-        return { response: res.response, body: res.body as { items: KubernetesObject[] } };
+      const listFn = async (): Promise<KubernetesListObject<KubernetesObject>> => {
+        const res = await this.customObjectsApi.listClusterCustomObject({
+          group: group,
+          version: version,
+          plural: plural,
+        });
+        return res.body as KubernetesListObject<KubernetesObject>;
       };
 
       const informer = makeInformer<KubernetesObject>(this.kc, path, listFn);
@@ -1031,9 +1005,14 @@ export class KubernetesClient {
         log(`Starting namespaced resource watcher for CRD: ${baseKey} in namespace: ${ns}`, LogLevel.DEBUG);
 
         const path = `/apis/${group}/${version}/namespaces/${ns}/${plural}`;
-        const listFn = async (): Promise<{ response: http.IncomingMessage; body: { items: KubernetesObject[] } }> => {
-          const res = await this.customObjectsApi.listNamespacedCustomObject(group, version, ns, plural);
-          return { response: res.response, body: res.body as { items: KubernetesObject[] } };
+        const listFn = async (): Promise<KubernetesListObject<KubernetesObject>> => {
+          const res = await this.customObjectsApi.listNamespacedCustomObject({
+            group: group,
+            version: version,
+            namespace: ns,
+            plural: plural,
+          });
+          return res.body as KubernetesListObject<KubernetesObject>;
         };
 
         const informer = makeInformer<KubernetesObject>(this.kc, path, listFn);
@@ -1329,8 +1308,8 @@ export class KubernetesClient {
 
   public async listCustomResourceDefinitions(): Promise<V1CustomResourceDefinition[]> {
     try {
-      const resp = await this.apiExtensionsV1Api.listCustomResourceDefinition();
-      return resp.body.items || [];
+      const res = await this.apiExtensionsV1Api.listCustomResourceDefinition();
+      return res.items || [];
     } catch (error) {
       log(`Error listing CRDs: ${error}`, LogLevel.ERROR);
       return [];
@@ -1343,7 +1322,11 @@ export class KubernetesClient {
     plural: string
   ): Promise<{ items: any[] }> {
     try {
-      const res = await this.customObjectsApi.listClusterCustomObject(group, version, plural);
+      const res = await this.customObjectsApi.listClusterCustomObject({
+        group: group,
+        version: version,
+        plural: plural
+      });
       return res.body as { items: any[] };
     } catch (error) {
       throw new Error(`listClusterCustomObject failed: ${error}`);
@@ -1357,12 +1340,12 @@ export class KubernetesClient {
     plural: string
   ): Promise<{ items: any[] }> {
     try {
-      const res = await this.customObjectsApi.listNamespacedCustomObject(
-        group,
-        version,
-        namespace,
-        plural
-      );
+      const res = await this.customObjectsApi.listNamespacedCustomObject({
+        group: group,
+        version: version,
+        namespace: namespace,
+        plural: plural
+      });
       return res.body as { items: any[] };
     } catch (error) {
       throw new Error(`listNamespacedCustomObject failed: ${error}`);

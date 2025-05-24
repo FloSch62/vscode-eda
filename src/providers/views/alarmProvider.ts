@@ -19,7 +19,7 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private refreshTimer?: NodeJS.Timeout;
   private _refreshDebounceTimer: NodeJS.Timeout | undefined;
 
-  constructor(private context: vscode.ExtensionContext, refreshIntervalMs: number = 10000) {
+  constructor(_context: vscode.ExtensionContext, refreshIntervalMs: number = 10000) {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.refreshInterval = refreshIntervalMs;

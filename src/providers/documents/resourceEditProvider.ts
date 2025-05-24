@@ -109,7 +109,7 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   /**
    * Override to allow write operations for k8s resources
    */
-  writeFile(uri: vscode.Uri, content: Uint8Array, options: { create: boolean; overwrite: boolean }): void {
+  writeFile(uri: vscode.Uri, content: Uint8Array, _options: { create: boolean; overwrite: boolean }): void {
     this.contentMap.set(uri.toString(), Buffer.from(content));
   }
 }

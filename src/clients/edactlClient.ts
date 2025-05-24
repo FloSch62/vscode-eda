@@ -1,5 +1,4 @@
 import { LogLevel, log } from '../extension';
-import { KubernetesClient } from './kubernetesClient';
 import { execInPod } from '../utils/kubectlRunner';
 
 /**
@@ -14,10 +13,7 @@ export class EdactlClient {
   private cacheExpiry: number = 0;
   private cacheTTL: number = 60000; // 1 minute
 
-  private k8sClient: KubernetesClient;
-
-  constructor(k8sClient: KubernetesClient) {
-    this.k8sClient = k8sClient;
+  constructor() {
     log('Initializing EdactlClient', LogLevel.INFO);
   }
 

@@ -29,7 +29,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private _refreshDebounceTimer: NodeJS.Timeout | undefined;
   private cachedNamespaces: string[] = [];
 
-  constructor(private context: vscode.ExtensionContext) {
+  constructor(_context: vscode.ExtensionContext) {
     this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
@@ -252,7 +252,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
           result.push(treeItem);
         } else {
           // Otherwise, only show if the sub-resources have some match
-          const resourceTypes = this.getResourcesForCategory(namespace, cat.id, /* skipFilter */ false);
+            const resourceTypes = this.getResourcesForCategory(namespace, cat.id);
           if (resourceTypes.length > 0) {
             result.push(treeItem);
           }
@@ -277,7 +277,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   /**
    * EDA vs. k8s resource "types" under the category
    */
-  private getResourcesForCategory(namespace: string, category: string, bypassFiltering = false): TreeItemBase[] {
+  private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
     try {
       if (category === 'eda') {
         return this.getEdaResourceTypes(namespace);
@@ -323,7 +323,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       if (inst.length === 0) continue;
 
       const label = kind;
-      const labelMatches = label.toLowerCase().includes(this.treeFilter); // <-- NEW
 
       // If no filter or label matches => keep all child
       // Otherwise, keep only children that pass the filter by name
