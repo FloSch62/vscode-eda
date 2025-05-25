@@ -15,6 +15,7 @@ export class KubectlWatcher extends EventEmitter {
   private options: KubectlOptions;
   private running = false;
   private stopped = false;
+  private readonly requestTimeout = '60s';
 
   constructor(kubectlPath: string, args: string[], options: KubectlOptions = {}) {
     super();
@@ -31,6 +32,7 @@ export class KubectlWatcher extends EventEmitter {
     if (this.options.namespace) {
       watchArgs.unshift('--namespace', this.options.namespace);
     }
+    watchArgs.push(`--request-timeout=${this.requestTimeout}`);
     watchArgs.push('--watch', '-o', 'json');
     this.proc = spawn(this.kubectlPath, watchArgs);
     this.running = true;
