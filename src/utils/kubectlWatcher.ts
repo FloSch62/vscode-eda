@@ -13,6 +13,8 @@ export class KubectlWatcher extends EventEmitter {
   private kubectlPath: string;
   private args: string[];
   private options: KubectlOptions;
+  private running = false;
+  private stopped = false;
 
   constructor(kubectlPath: string, args: string[], options: KubectlOptions = {}) {
     super();
@@ -22,22 +24,39 @@ export class KubectlWatcher extends EventEmitter {
   }
 
   public start(): void {
+    if (this.running || this.stopped) {
+      return;
+    }
     const watchArgs = [...this.args];
     if (this.options.namespace) {
       watchArgs.unshift('--namespace', this.options.namespace);
     }
     watchArgs.push('--watch', '-o', 'json');
     this.proc = spawn(this.kubectlPath, watchArgs);
+    this.running = true;
     this.proc.stdout.on('data', data => this.handleData(data.toString()));
     this.proc.stderr.on('data', err => this.emit('error', new Error(err.toString())));
-    this.proc.on('close', () => this.emit('end'));
+    this.proc.on('close', () => {
+      this.running = false;
+      this.emit('end');
+    });
   }
 
   public stop(): void {
+    this.stopped = true;
     if (this.proc) {
       this.proc.kill();
       this.proc = null;
+      this.running = false;
     }
+  }
+
+  public isRunning(): boolean {
+    return this.running;
+  }
+
+  public isStopped(): boolean {
+    return this.stopped;
   }
 
   private handleData(chunk: string): void {

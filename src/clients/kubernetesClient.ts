@@ -124,7 +124,11 @@ export class KubernetesClient {
     });
     this.crdWatcher.on('error', err => {
       log(`CRD watcher error: ${err}`, LogLevel.ERROR);
-      setTimeout(() => this.startCrdWatcher(), 5000);
+      setTimeout(() => {
+        if (this.crdWatcher && !this.crdWatcher.isRunning() && !this.crdWatcher.isStopped()) {
+          this.startCrdWatcher();
+        }
+      }, 5000);
     });
     this.crdWatcher.start();
   }
@@ -152,7 +156,11 @@ export class KubernetesClient {
     });
     this.namespaceWatcher.on('error', err => {
       log(`Namespace watcher error: ${err}`, LogLevel.ERROR);
-      setTimeout(() => this.startNamespaceWatcher(), 5000);
+      setTimeout(() => {
+        if (this.namespaceWatcher && !this.namespaceWatcher.isRunning() && !this.namespaceWatcher.isStopped()) {
+          this.startNamespaceWatcher();
+        }
+      }, 5000);
     });
     this.namespaceWatcher.start();
   }
@@ -177,7 +185,11 @@ export class KubernetesClient {
     });
     this.pvWatcher.on('error', err => {
       log(`PV watcher error: ${err}`, LogLevel.ERROR);
-      setTimeout(() => this.startPersistentVolumeWatcher(), 5000);
+      setTimeout(() => {
+        if (this.pvWatcher && !this.pvWatcher.isRunning() && !this.pvWatcher.isStopped()) {
+          this.startPersistentVolumeWatcher();
+        }
+      }, 5000);
     });
     this.pvWatcher.start();
   }
@@ -258,7 +270,9 @@ export class KubernetesClient {
     watcher.on('error', err => {
       log(`${resourceKind} watcher error for ${namespace}: ${err}`, LogLevel.ERROR);
       setTimeout(() => {
-        watcher.start();
+        if (!watcher.isRunning() && !watcher.isStopped()) {
+          watcher.start();
+        }
       }, 5000);
     });
   }
@@ -349,7 +363,11 @@ export class KubernetesClient {
     });
     watcher.on('error', err => {
       log(`Resource watcher error for ${key}: ${err}`, LogLevel.ERROR);
-      setTimeout(() => watcher.start(), 5000);
+      setTimeout(() => {
+        if (!watcher.isRunning() && !watcher.isStopped()) {
+          watcher.start();
+        }
+      }, 5000);
     });
   }
 
