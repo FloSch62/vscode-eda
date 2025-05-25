@@ -444,7 +444,6 @@
     "utf-8-validate": "^6.0.5"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^0.22.3",
     "@types/sinon": "^17.0.4",
     "@types/sinon-chai": "^4.0.0",
     "@vscode/vsce": "^3.4.1",
