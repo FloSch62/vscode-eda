@@ -1,4 +1,5 @@
-import { fetch, Agent } from 'undici';
+import { fetch, Agent, ProxyAgent } from 'undici';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 // Local lightweight logger to avoid VS Code dependency when used standalone
 enum LogLevel {
   DEBUG = 0,
@@ -36,6 +37,7 @@ export interface EdaAuthOptions {
   kcPassword?: string;
   edaUsername?: string;
   edaPassword?: string;
+  httpsProxy?: string;
 }
 
 /**
@@ -48,7 +50,8 @@ export class EdaAuthClient {
   private authPromise: Promise<void> = Promise.resolve();
   private clientId: string;
   private clientSecret: string;
-  private agent: Agent | undefined;
+  private agent: Agent | ProxyAgent | undefined;
+  private wsAgent: HttpsProxyAgent<string> | undefined;
   private skipTlsVerify = false;
   private refreshTimer: ReturnType<typeof setInterval> | undefined;
   private kcUsername?: string;
@@ -62,7 +65,25 @@ export class EdaAuthClient {
     this.clientId = opts.clientId || process.env.EDA_CLIENT_ID || 'eda';
     this.clientSecret = opts.clientSecret;
     this.skipTlsVerify = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
-    this.agent = this.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+
+    // Use manual proxy if provided, otherwise detect from environment
+    const proxyUrl = opts.httpsProxy ||
+                     process.env.HTTPS_PROXY || process.env.https_proxy ||
+                     process.env.HTTP_PROXY || process.env.http_proxy;
+
+    if (proxyUrl) {
+      this.agent = new ProxyAgent({
+        uri: proxyUrl,
+        requestTls: { rejectUnauthorized: !this.skipTlsVerify }
+      });
+      // Create WebSocket agent for proxy support
+      this.wsAgent = new HttpsProxyAgent(proxyUrl, {
+        rejectUnauthorized: !this.skipTlsVerify
+      });
+    } else {
+      this.agent = this.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+      this.wsAgent = undefined;
+    }
     this.kcUsername = opts.kcUsername;
     this.kcPassword = opts.kcPassword;
     this.edaUsername = opts.edaUsername || process.env.EDA_USERNAME || 'admin';
@@ -94,7 +115,7 @@ export class EdaAuthClient {
   /**
    * Get the HTTP agent for requests
    */
-  public getAgent(): Agent | undefined {
+  public getAgent(): Agent | ProxyAgent | undefined {
     return this.agent;
   }
 
@@ -118,7 +139,13 @@ export class EdaAuthClient {
   /**
    * Get WebSocket options including TLS verification
    */
-  public getWsOptions(): { rejectUnauthorized: boolean } {
+  public getWsOptions(): any {
+    // WebSocket needs the wsAgent for proxy support
+    if (this.wsAgent) {
+      return {
+        agent: this.wsAgent
+      };
+    }
     return { rejectUnauthorized: !this.skipTlsVerify };
   }
 

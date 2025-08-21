@@ -202,6 +202,7 @@ class TargetWizardWebview {
     addRow('EDA Password', target.edaPassword ? '••••••••' : '', 'Not configured');
     addRow('Client Secret', target.clientSecret ? '••••••••' : '', 'Not configured');
     addRow('Skip TLS Verification', target.skipTlsVerify ? 'Yes' : 'No');
+    addRow('HTTPS Proxy', target.httpsProxy || '', 'Auto-detect from environment');
 
     const actions = document.createElement('div');
     actions.className = 'flex gap-3 pt-4 mt-6 border-t border-[var(--vscode-panel-border)]';
@@ -285,6 +286,7 @@ class TargetWizardWebview {
     (document.getElementById('edaPassHint') as HTMLElement).textContent = target.edaPassword ? 'Loaded from secret storage' : '';
     (document.getElementById('clientSecretHint') as HTMLElement).textContent = target.clientSecret ? 'Loaded from secret storage' : 'Leave empty to auto-retrieve from Keycloak';
     (document.getElementById('skipTls') as HTMLInputElement).checked = !!target.skipTlsVerify;
+    (document.getElementById('httpsProxy') as HTMLInputElement).value = target.httpsProxy || process.env.HTTPS_PROXY || process.env.https_proxy || '';
   }
 
   private clearForm(): void {
@@ -297,6 +299,7 @@ class TargetWizardWebview {
     (document.getElementById('edaPassHint') as HTMLElement).textContent = '';
     (document.getElementById('clientSecretHint') as HTMLElement).textContent = 'Click Retrieve to fetch from Keycloak';
     (document.getElementById('skipTls') as HTMLInputElement).checked = false;
+    (document.getElementById('httpsProxy') as HTMLInputElement).value = process.env.HTTPS_PROXY || process.env.https_proxy || '';
   }
 
   private cancelForm(): void {
@@ -402,12 +405,15 @@ class TargetWizardWebview {
       return;
     }
 
+    const httpsProxy = (document.getElementById('httpsProxy') as HTMLInputElement).value.trim();
+
     const item = {
       url,
       context: (document.getElementById('context') as HTMLSelectElement).value || undefined,
       coreNamespace,
       edaUsername,
-      skipTlsVerify: (document.getElementById('skipTls') as HTMLInputElement).checked || undefined
+      skipTlsVerify: (document.getElementById('skipTls') as HTMLInputElement).checked || undefined,
+      httpsProxy: httpsProxy || undefined
     } as any;
 
     if (this.editIndex !== null) {
@@ -436,9 +442,12 @@ class TargetWizardWebview {
       return;
     }
 
+    const httpsProxy = (document.getElementById('httpsProxy') as HTMLInputElement).value.trim();
+
     this.vscode.postMessage({
       command: 'retrieveClientSecret',
-      url
+      url,
+      httpsProxy
     });
   }
 

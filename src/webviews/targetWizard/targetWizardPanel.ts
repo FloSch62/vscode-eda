@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
 import { KubernetesClient } from '../../clients/kubernetesClient';
-import { fetch, Agent } from 'undici';
+import { fetch, Agent, ProxyAgent } from 'undici';
 
 export interface TargetWizardResult {
   url: string;
@@ -70,7 +70,7 @@ export class TargetWizardPanel extends BasePanel {
           this.showReload();
           break;
         case 'retrieveClientSecret':
-          await this.retrieveClientSecret(msg.url);
+          await this.retrieveClientSecret(msg.url, msg.httpsProxy);
           break;
       }
     });
@@ -115,7 +115,8 @@ export class TargetWizardPanel extends BasePanel {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
       skipTlsVerify: msg.skipTlsVerify || undefined,
-      coreNamespace: msg.coreNamespace || undefined
+      coreNamespace: msg.coreNamespace || undefined,
+      httpsProxy: msg.httpsProxy || undefined
     };
 
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
@@ -191,7 +192,8 @@ export class TargetWizardPanel extends BasePanel {
         context: target.context || undefined,
         edaUsername: target.edaUsername || undefined,
         skipTlsVerify: target.skipTlsVerify || undefined,
-        coreNamespace: target.coreNamespace || undefined
+        coreNamespace: target.coreNamespace || undefined,
+        httpsProxy: target.httpsProxy || undefined
       };
     }
 
@@ -233,7 +235,7 @@ export class TargetWizardPanel extends BasePanel {
     });
   }
 
-  private async retrieveClientSecret(url: string): Promise<void> {
+  private async retrieveClientSecret(url: string, manualProxy?: string): Promise<void> {
     try {
       // Validate URL format
       if (!url) {
@@ -284,8 +286,8 @@ export class TargetWizardPanel extends BasePanel {
         return;
       }
 
-      // Fetch client secret using KC admin credentials
-      const clientSecret = await this.fetchClientSecretDirectly(url, kcUsername, kcPassword);
+      // Fetch client secret using KC admin credentials with manual proxy if provided
+      const clientSecret = await this.fetchClientSecretDirectly(url, kcUsername, kcPassword, manualProxy);
 
       // Send the secret back to the webview
       this.panel.webview.postMessage({
@@ -295,21 +297,30 @@ export class TargetWizardPanel extends BasePanel {
 
       vscode.window.showInformationMessage('Client secret retrieved successfully');
     } catch (error: any) {
-      console.error('Full error:', error);
       vscode.window.showErrorMessage(`Failed to retrieve client secret: ${error.message}`);
     }
   }
 
-  private async fetchClientSecretDirectly(baseUrl: string, kcUsername: string, kcPassword: string): Promise<string> {
+  private async fetchClientSecretDirectly(baseUrl: string, kcUsername: string, kcPassword: string, manualProxy?: string): Promise<string> {
     // Ensure baseUrl doesn't have trailing slash
     baseUrl = baseUrl.replace(/\/$/, '');
 
     const kcUrl = `${baseUrl}/core/httpproxy/v1/keycloak`;
-    const agent = new Agent({ connect: { rejectUnauthorized: false } });
+
+    // Use manual proxy if provided, otherwise detect from environment
+    const proxyUrl = manualProxy ||
+                     process.env.HTTPS_PROXY || process.env.https_proxy ||
+                     process.env.HTTP_PROXY || process.env.http_proxy;
+
+    const agent: Agent | ProxyAgent = proxyUrl
+      ? new ProxyAgent({
+          uri: proxyUrl,
+          requestTls: { rejectUnauthorized: false }
+        })
+      : new Agent({ connect: { rejectUnauthorized: false } });
 
     // Step 1: Get admin token
     const adminTokenUrl = `${kcUrl}/realms/master/protocol/openid-connect/token`;
-    console.log(`Attempting to authenticate with Keycloak at: ${adminTokenUrl}`);
     const adminTokenRes = await fetch(adminTokenUrl, {
       method: 'POST',
       body: new URLSearchParams({
@@ -323,8 +334,7 @@ export class TargetWizardPanel extends BasePanel {
     });
 
     if (!adminTokenRes.ok) {
-      const errorText = await adminTokenRes.text();
-      console.error(`Keycloak admin auth failed: ${adminTokenRes.status} - ${errorText}`);
+      await adminTokenRes.text();
       throw new Error(`Failed to authenticate with Keycloak admin: ${adminTokenRes.status} ${adminTokenRes.statusText}. URL: ${adminTokenUrl}`);
     }
 
@@ -407,7 +417,8 @@ export class TargetWizardPanel extends BasePanel {
           edaPassword: edaPassword || undefined,
           clientSecret: clientSecret || undefined,
           skipTlsVerify: val.skipTlsVerify || undefined,
-          coreNamespace: val.coreNamespace || undefined
+          coreNamespace: val.coreNamespace || undefined,
+          httpsProxy: val.httpsProxy || undefined
         };
       })
     );

@@ -111,10 +111,6 @@ declare function acquireVsCodeApi(): {
       viewBtn.className = 'icon-btn';
       viewBtn.title = 'View Config';
       viewBtn.innerHTML = '<span class="codicon codicon-file-code"></span>';
-      const sshBtn = document.createElement('button');
-      sshBtn.className = 'icon-btn';
-      sshBtn.title = 'SSH';
-      sshBtn.innerHTML = '<span class="codicon codicon-terminal"></span>';
       const name = nameIdx >= 0 ? row[nameIdx] : '';
       const ns = nsIdx >= 0 ? row[nsIdx] : '';
       const nodeDetails = nodeDetailsIdx >= 0 ? row[nodeDetailsIdx] : undefined;
@@ -125,16 +121,22 @@ declare function acquireVsCodeApi(): {
           namespace: ns,
         });
       });
-      sshBtn.addEventListener('click', () => {
-        vscode.postMessage({
-          command: 'sshTopoNode',
-          name,
-          namespace: ns,
-          nodeDetails,
-        });
-      });
       btnTd.appendChild(viewBtn);
-      btnTd.appendChild(sshBtn);
+      if (nodeDetails) {
+        const sshBtn = document.createElement('button');
+        sshBtn.className = 'icon-btn';
+        sshBtn.title = 'SSH';
+        sshBtn.innerHTML = '<span class="codicon codicon-terminal"></span>';
+        sshBtn.addEventListener('click', () => {
+          vscode.postMessage({
+            command: 'sshTopoNode',
+            name,
+            namespace: ns,
+            nodeDetails,
+          });
+        });
+        btnTd.appendChild(sshBtn);
+      }
       tr.appendChild(btnTd);
       columns.forEach((_, i) => {
         const td = document.createElement('td');

@@ -47,6 +47,7 @@ export interface EdaTargetConfig {
   edaUsername?: string;
   skipTlsVerify?: boolean;
   coreNamespace?: string;
+  httpsProxy?: string;
 }
 
 
@@ -180,6 +181,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let coreNamespace = process.env.EDA_CORE_NAMESPACE || 'eda-system';
   let edaUsername = config.get<string>('edaUsername', 'admin');
   let edaPassword = '';
+  let httpsProxy: string | undefined;
   const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length === 0) {
@@ -202,6 +204,9 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       if (val.coreNamespace) {
         coreNamespace = val.coreNamespace;
+      }
+      if (val.httpsProxy) {
+        httpsProxy = val.httpsProxy;
       }
     }
   }
@@ -260,7 +265,8 @@ export async function activate(context: vscode.ExtensionContext) {
       edaUsername,
       edaPassword,
       skipTlsVerify,
-      coreNamespace
+      coreNamespace,
+      httpsProxy
     });
 
     // 2) Register clients FIRST - before any providers are created
