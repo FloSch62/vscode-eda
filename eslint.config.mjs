@@ -70,7 +70,8 @@ export default [
           argsIgnorePattern: '^_',    // allow unused args named _foo
           varsIgnorePattern: '^_'     // allow unused vars named _bar
         }
-      ]
+      ],
+          'complexity': ['warn', { max: 50 }]
     }
   },
 
